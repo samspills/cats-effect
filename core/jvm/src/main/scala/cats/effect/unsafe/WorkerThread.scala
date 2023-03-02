@@ -416,7 +416,7 @@ private final class WorkerThread(
 
       ((state & ExternalQueueTicksMask): @switch) match {
         case 0 =>
-          println("SRP WT case 0")
+          println(s"SRP WT case 0 for thread ${self.index} ${self}")
           if (pool.blockedThreadDetectionEnabled) {
             // TODO prefetch pool.workerThread or Thread.State.BLOCKED ?
             // TODO check that branch elimination makes it free when off
@@ -484,7 +484,7 @@ private final class WorkerThread(
         case 1 =>
           // Check the external queue after a failed dequeue from the local
           // queue (due to the local queue being empty).
-          println("SRP WT case 1")
+          println(s"SRP WT case 1 for thread ${self.index} ${self}")
           val element = external.poll(rnd)
           if (element.isInstanceOf[Array[Runnable]]) {
             val batch = element.asInstanceOf[Array[Runnable]]
@@ -559,7 +559,7 @@ private final class WorkerThread(
           }
 
         case 2 =>
-          println("SRP WT case 2")
+          println(s"SRP WT case 2 for thread ${self.index} ${self}")
           // Try stealing fibers from other worker threads.
           val fiber = pool.stealFromOtherWorkerThread(index, rnd, self)
           if (fiber ne null) {
@@ -614,13 +614,13 @@ private final class WorkerThread(
         case 3 =>
           // Check the external queue after a failed dequeue from the local
           // queue (due to the local queue being empty).
-          println("SRP WT case 3")
+          println(s"SRP WT case 3 for thread ${self.index} ${self}")
           val element = external.poll(rnd)
           println(s"SRP WT case 3: found element $element")
+          println(s"SRP WT case 3 ${self.index} ${self}: element is array of runnable? ${element
+              .isInstanceOf[Array[Runnable]]}")
           println(
-            s"SRP WT case 3: element is array of runnable? ${element.isInstanceOf[Array[Runnable]]}")
-          println(
-            s"SRP WT case 3: element is single runnable? ${element.isInstanceOf[Runnable]}")
+            s"SRP WT case 3 ${self.index} ${self}: element is single runnable? ${element.isInstanceOf[Runnable]}")
 
           if (element.isInstanceOf[Array[Runnable]]) {
             val batch = element.asInstanceOf[Array[Runnable]]
@@ -657,6 +657,7 @@ private final class WorkerThread(
             pool.transitionWorkerFromSearching(rnd)
 
             // The dequeued element is a single fiber. Execute it immediately.
+            println(s"SRP WT case 3: about to run element ${self.index} ${self}")
             try fiber.run()
             catch {
               case t if NonFatal(t) =>
@@ -675,7 +676,7 @@ private final class WorkerThread(
           }
 
         case _ =>
-          println("SRP WT case _")
+          println(s"SRP WT case _ for thread ${self.index} ${self}")
           if (sleepers.nonEmpty) {
             val now = System.nanoTime()
 
