@@ -1016,17 +1016,20 @@ private final class IOFiber[A](
    */
   private[this] def done(oc: OutcomeIO[A]): Unit = {
     // println(s"<$name> invoking done($oc); callback = ${callback.get()}")
-    println("SRP fiber done")
+    System.out.println("SRP fiber done")
     _join = IO.pure(oc)
     _cancel = IO.unit
 
     outcome = oc
 
     try {
-      println(s"SRP outcome stack: ${oc}")
-      if (!callbacks(oc, false) && runtime.config.reportUnhandledFiberErrors) {
+      System.out.println(s"SRP outcome stack: ${oc}")
+      val x = callbacks(oc, false)
+      System.out.println(s"SRP callbacks: $x")
+      if (!x && runtime.config.reportUnhandledFiberErrors) {
         oc match {
-          case Outcome.Errored(e) => currentCtx.reportFailure(e)
+          case Outcome.Errored(e) =>
+            System.out.println(s"SRP oc match $oc"); currentCtx.reportFailure(e)
           case _ => ()
         }
       }
