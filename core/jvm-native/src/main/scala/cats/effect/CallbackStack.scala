@@ -51,19 +51,23 @@ private final class CallbackStack[A](private[this] var callback: A => Unit)
   @tailrec
   def apply(oc: A, invoked: Boolean): Boolean = {
     val cb = callback
-
+    System.out.println(s"SRP callback apply 1: $cb, $oc, $invoked")
     val invoked2 = if (cb != null) {
       cb(oc)
+      System.out.println(s"SRP callback apply 1.5: $cb, $oc, $invoked")
       true
     } else {
       invoked
     }
 
     val next = get()
-    if (next != null)
+    if (next != null) {
+      System.out.println(s"SRP callback apply 1.75: $cb, $oc, $invoked")
       next(oc, invoked2)
-    else
+    } else {
+      System.out.println(s"SRP callback apply 2: $cb, $oc, $invoked2")
       invoked2
+    }
   }
 
   /**
