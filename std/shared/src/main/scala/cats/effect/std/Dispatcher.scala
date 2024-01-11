@@ -249,8 +249,11 @@ object Dispatcher {
         def step(
             state: Array[AtomicReference[List[Registration]]],
             await: F[Unit],
-            doneR: AtomicBoolean): F[Unit] =
+            doneR: AtomicBoolean,
+            sem: Semaphore[F]
+        ): F[Unit] =
           for {
+            _ <- sem.acquire
             done <- F.delay(doneR.get())
             regs <- F delay {
               val buffer = mutable.ListBuffer.empty[Registration]
@@ -270,23 +273,25 @@ object Dispatcher {
 
             _ <-
               if (regs.isEmpty) {
-                await
+                sem.release *> await
               } else {
-                regs traverse_ {
+                (regs traverse_ {
                   case r @ Registration(action, prepareCancel) =>
                     val supervise: F[Unit] =
                       fork(action).flatMap(cancel => F.delay(prepareCancel(cancel)))
 
                     // Check for task cancelation before executing.
                     F.delay(r.get()).ifM(supervise, F.delay(prepareCancel(F.unit)))
-                }
+                }) *> sem.release
               }
-          } yield ()
+          } yield () // release semaphore
 
         def dispatcher(
             doneR: AtomicBoolean,
             latch: AtomicReference[() => Unit],
-            state: Array[AtomicReference[List[Registration]]]): F[Unit] = {
+            state: Array[AtomicReference[List[Registration]]],
+            sem: Semaphore[F]
+        ): F[Unit] = {
 
           val await =
             F.async_[Unit] { cb =>
@@ -299,16 +304,24 @@ object Dispatcher {
           F.delay(latch.set(Noop)) *> // reset latch
             // if we're marked as done, yield immediately to give other fibers a chance to shut us down
             // we might loop on this a few times since we're marked as done before the supervisor is canceled
-            F.delay(doneR.get()).ifM(F.cede, step(state, await, doneR))
+            F.delay(doneR.get()).ifM(F.cede, step(state, await, doneR, sem))
         }
 
         0.until(workers).toList traverse_ { n =>
-          Resource.eval(F.delay(new AtomicBoolean(false))) flatMap { doneR =>
+          (
+            Resource.eval(Semaphore[F](1L)),
+            Resource.eval(F.delay(new AtomicBoolean(false)))) flatMapN { (sem, doneR) =>
             val latch = latches(n)
-            val worker = dispatcher(doneR, latch, states(n))
+            val worker = dispatcher(doneR, latch, states(n), sem)
             val release = F.delay(latch.getAndSet(Open)())
             Resource.make(supervisor.supervise(worker)) { _ =>
-              F.delay(doneR.set(true)) *> step(states(n), F.unit, doneR) *> release
+              F.delay(doneR.set(true)) *> step(
+                states(n),
+                F.unit,
+                doneR,
+                sem
+              ) *> release
+            // *> release
             }
           }
         }
