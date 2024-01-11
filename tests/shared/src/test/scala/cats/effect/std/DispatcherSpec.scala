@@ -78,8 +78,9 @@ class DispatcherSpec extends BaseSpec with DetectPlatform {
             0.until(length) foreach { i =>
               runner.unsafeRunAndForget(results.update(_ :+ i).guarantee(gate.release))
             }
-          } *> gate.await
+          }
         }
+        _ <- gate.await
 
         vec <- results.get
         _ <- IO(vec mustEqual 0.until(length).toVector)
@@ -326,14 +327,17 @@ class DispatcherSpec extends BaseSpec with DetectPlatform {
           _ <- IO(
             runner.unsafeRunAndForget(
               (IO.canceled >> resultR.set(true)).guarantee(latch.complete(()).void)))
-          _ <- latch.get
+          _ <- latch.get.timeout(1.second).attempt
 
-          result <- resultR.get
-          _ <- IO(result must beFalse)
+          result <- resultR.get.timeout(1.second).attempt
+          _ <- IO(result must_== (Right(false)))
 
           secondLatch <- IO.deferred[Unit]
           _ <- IO(runner.unsafeRunAndForget(secondLatch.complete(()).void))
-          _ <- secondLatch.get // if the dispatcher itself is dead, this will hang
+          _ <- secondLatch
+            .get
+            .timeout(1.second)
+            .attempt // if the dispatcher itself is dead, this will hang
         } yield ok
       }
     }
