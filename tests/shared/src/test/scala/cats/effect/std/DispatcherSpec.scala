@@ -331,19 +331,21 @@ class DispatcherSpec extends BaseSpec with DetectPlatform {
 
     "cancelation does not block a worker" in real {
       dispatcher
-        .use { runner =>
-          val clogUp = IO.deferred[Unit].flatMap { gate =>
-            IO {
-              val task = gate.complete(()) *> IO.never[Unit].uncancelable
-              runner.unsafeToFutureCancelable(task)._2
-            }.flatMap { cancel =>
-              // wait until task starts, then cancel
-              gate.get *> IO(cancel())
+        .allocated
+        .flatMap {
+          case (runner, _) =>
+            val clogUp = IO.deferred[Unit].flatMap { gate =>
+              IO {
+                val task = gate.complete(()) *> IO.never[Unit].uncancelable
+                runner.unsafeToFutureCancelable(task)._2
+              }.flatMap { cancel =>
+                // wait until task starts, then cancel
+                gate.get *> IO(cancel())
+              }
             }
-          }
-          clogUp.parReplicateA_(1000) *>
-            // now try to run a new task
-            IO.fromFuture(IO(runner.unsafeToFuture(IO.unit)))
+            clogUp.parReplicateA_(1000) *>
+              // now try to run a new task
+              IO.fromFuture(IO(runner.unsafeToFuture(IO.unit)))
         }
         .replicateA_(if (isJVM) 1000 else 1)
         .as(ok)
@@ -351,19 +353,21 @@ class DispatcherSpec extends BaseSpec with DetectPlatform {
 
     "cancelation race does not block a worker" in real {
       dispatcher
-        .use { runner =>
-          val clogUp = IO {
-            val task = IO.never[Unit].uncancelable
-            runner.unsafeToFutureCancelable(task)._2
-          }.flatMap { cancel =>
-            // cancel concurrently
-            // We want to trigger race condition where task starts but then discovers it was canceled
-            IO(cancel())
-          }
+        .allocated
+        .flatMap {
+          case (runner, _) =>
+            val clogUp = IO {
+              val task = IO.never[Unit].uncancelable
+              runner.unsafeToFutureCancelable(task)._2
+            }.flatMap { cancel =>
+              // cancel concurrently
+              // We want to trigger race condition where task starts but then discovers it was canceled
+              IO(cancel())
+            }
 
-          clogUp.parReplicateA_(1000) *>
-            // now try to run a new task
-            IO.fromFuture(IO(runner.unsafeToFuture(IO.unit)))
+            clogUp.parReplicateA_(1000) *>
+              // now try to run a new task
+              IO.fromFuture(IO(runner.unsafeToFuture(IO.unit)))
         }
         .replicateA_(if (isJVM) 1000 else 1)
         .as(ok)

@@ -427,7 +427,8 @@ object Dispatcher {
                       } else {
                         reg.stateR.get() match {
                           case RegState.CancelRequested(latch) =>
-                            cancelF.guarantee(Sync[F].delay(latch.success(())).void)
+                            executor(cancelF.guarantee(Sync[F].delay(latch.success(())).void))(
+                              _ => Applicative[F].unit)
 
                           case RegState.Completed =>
                             Applicative[F].unit
@@ -448,7 +449,8 @@ object Dispatcher {
           }
 
         case Registration.Finalizer(action) =>
-          action
+          // action
+          executor(action)(_ => Applicative[F].unit)
 
         case Registration.PoisonPill() =>
           Sync[F].delay(doneR.set(true))
