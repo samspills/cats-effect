@@ -270,7 +270,7 @@ object Dispatcher {
         // note this scopes the executors *outside* the workers, meaning the workers shut down first
         // I think this is what we want, since it avoids enqueue race conditions
         executorF flatMap { executor =>
-          val workerF = Worker[F](executor, terminationLatch)
+          val workerF = Worker[F](executor, terminationLatch, !parallel && cancelable)
           val workersF =
             if (parallel)
               workerF.replicateA(Cpus).map(_.toArray)
@@ -389,7 +389,9 @@ object Dispatcher {
   private final class Worker[F[_]: Async](
       val queue: UnsafeAsyncQueue[F, Registration[F]],
       executor: Executor[F],
-      terminationLatch: Deferred[F, Unit]) {
+      terminationLatch: Deferred[F, Unit],
+      cancelInPlace: Boolean
+  ) {
 
     private[this] val doneR = new AtomicBoolean(false)
 
@@ -427,8 +429,12 @@ object Dispatcher {
                       } else {
                         reg.stateR.get() match {
                           case RegState.CancelRequested(latch) =>
-                            executor(cancelF.guarantee(Sync[F].delay(latch.success(())).void))(
-                              _ => Applicative[F].unit)
+                            if (cancelInPlace)
+                              cancelF.guarantee(Sync[F].delay(latch.success(())).void)
+                            else
+                              executor(
+                                cancelF.guarantee(Sync[F].delay(latch.success(())).void))(_ =>
+                                Applicative[F].unit)
 
                           case RegState.Completed =>
                             Applicative[F].unit
@@ -449,8 +455,7 @@ object Dispatcher {
           }
 
         case Registration.Finalizer(action) =>
-          // action
-          executor(action)(_ => Applicative[F].unit)
+          if (cancelInPlace) action else executor(action)(_ => Applicative[F].unit)
 
         case Registration.PoisonPill() =>
           Sync[F].delay(doneR.set(true))
@@ -468,9 +473,15 @@ object Dispatcher {
 
     def apply[F[_]: Async](
         executor: Executor[F],
-        terminationLatch: Deferred[F, Unit]): Resource[F, Worker[F]] = {
+        terminationLatch: Deferred[F, Unit],
+        cancelInPlace: Boolean
+    ): Resource[F, Worker[F]] = {
       val initF = Sync[F].delay(
-        new Worker[F](new UnsafeAsyncQueue[F, Registration[F]](), executor, terminationLatch))
+        new Worker[F](
+          new UnsafeAsyncQueue[F, Registration[F]](),
+          executor,
+          terminationLatch,
+          cancelInPlace))
 
       Resource.make(initF)(w => Sync[F].delay(w.queue.unsafeOffer(Registration.PoisonPill())))
     }
